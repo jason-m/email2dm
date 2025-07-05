@@ -30,8 +30,7 @@ Send emails to: `<TELEGRAM_ID>@<any-domain>`
 ```bash
 git clone <repository-url>
 cd smtp-telegram-bridge
-go mod init smtp-telegram-bridge
-go get github.com/emersion/go-smtp
+go get
 go build -o smtp-telegram-bridge
 ```
 
