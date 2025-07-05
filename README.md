@@ -203,8 +203,4 @@ echo "Backup completed: 500GB transferred" | mail -s "Daily Backup" -1001234567@
 
 ## 📜 License
 
-[Add your license here]
-
-## 🤝 Contributing
-
-[Add contribution guidelines here]
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
