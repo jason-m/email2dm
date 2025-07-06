@@ -150,7 +150,7 @@ func validatePlatformTokens(telegramClient *TelegramClient, slackClient *SlackCl
 	if telegramClient != nil {
 		log.Println("Testing Telegram bot token...")
 		if err := telegramClient.TestConnection(); err != nil {
-			errors = append(errors, fmt.Errorf("Telegram validation failed: %w", err))
+			errors = append(errors, fmt.Errorf("telegram validation failed: %w", err))
 		} else {
 			log.Println("Telegram bot token validated successfully!")
 		}
@@ -159,7 +159,7 @@ func validatePlatformTokens(telegramClient *TelegramClient, slackClient *SlackCl
 	if slackClient != nil {
 		log.Println("Testing Slack bot token...")
 		if err := slackClient.TestConnection(); err != nil {
-			errors = append(errors, fmt.Errorf("Slack validation failed: %w", err))
+			errors = append(errors, fmt.Errorf("slack validation failed: %w", err))
 		} else {
 			log.Println("Slack bot token validated successfully!")
 		}
