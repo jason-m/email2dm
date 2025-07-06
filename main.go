@@ -14,7 +14,6 @@ import (
 // Config holds application configuration
 type Config struct {
 	TelegramBotToken string
-	TelegramChatID   string
 	SMTPListenHost   string
 	SMTPListenPort   int
 	AllowedNetworks  []string
@@ -26,7 +25,6 @@ type Config struct {
 // loadConfig loads configuration from environment variables
 func loadConfig() (*Config, error) {
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
-	chatID := os.Getenv("TELEGRAM_CHAT_ID")
 	smtpHost := os.Getenv("SMTP_LISTEN_HOST")
 	smtpPortStr := os.Getenv("SMTP_LISTEN_PORT")
 	allowedNetworksStr := os.Getenv("ALLOWED_NETWORKS")
@@ -36,11 +34,6 @@ func loadConfig() (*Config, error) {
 
 	if botToken == "" {
 		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN environment variable is required")
-	}
-
-	// Note: TELEGRAM_CHAT_ID is now optional since we extract from email addresses
-	if chatID == "" {
-		log.Println("Warning: TELEGRAM_CHAT_ID not set - will extract from email addresses only")
 	}
 
 	// Default to 0.0.0.0 if not specified
@@ -103,7 +96,6 @@ func loadConfig() (*Config, error) {
 
 	return &Config{
 		TelegramBotToken: botToken,
-		TelegramChatID:   chatID,
 		SMTPListenHost:   smtpHost,
 		SMTPListenPort:   smtpPort,
 		AllowedNetworks:  allowedNetworks,
@@ -155,7 +147,7 @@ func NewApplication(config *Config) (*Application, error) {
 	}
 
 	// Initialize Telegram client
-	telegramClient := NewTelegramClient(config.TelegramBotToken, config.TelegramChatID)
+	telegramClient := NewTelegramClient(config.TelegramBotToken)
 
 	// Initialize email processor
 	emailProcessor := NewEmailProcessor(telegramClient)
@@ -175,13 +167,13 @@ func NewApplication(config *Config) (*Application, error) {
 func (app *Application) Start() error {
 	log.Println("Starting SMTP to Telegram Bridge...")
 
-	// Test Telegram connection
-	log.Println("Testing Telegram connection...")
+	// Test Telegram bot token and API access
+	log.Println("Testing Telegram bot token...")
 	if err := app.TelegramClient.TestConnection(); err != nil {
-		log.Printf("Warning: Telegram connection test failed: %v", err)
-		log.Println("Continuing anyway - check your bot token and chat ID")
+		log.Printf("Warning: Telegram bot validation failed: %v", err)
+		log.Println("Continuing anyway - check your bot token")
 	} else {
-		log.Println("Telegram connection test successful!")
+		log.Println("Telegram bot token validated successfully!")
 	}
 
 	// Get bot info for debugging
@@ -240,7 +232,6 @@ func printUsage() {
 	fmt.Println("  TELEGRAM_BOT_TOKEN - Your Telegram bot token from @BotFather")
 	fmt.Println("")
 	fmt.Println("Optional environment variables:")
-	fmt.Println("  TELEGRAM_CHAT_ID   - Default chat ID (for testing only)")
 	fmt.Println("  SMTP_LISTEN_HOST   - IP address to bind SMTP server (default: 0.0.0.0)")
 	fmt.Println("  SMTP_LISTEN_PORT   - Port to bind SMTP server (default: 2525)")
 	fmt.Println("  ALLOWED_NETWORKS   - Comma-separated CIDR networks (e.g., '192.168.1.0/24,10.0.0.0/8')")
@@ -269,12 +260,6 @@ func printUsage() {
 	fmt.Println("  export TLS_CERT_PATH='/path/to/server.crt'")
 	fmt.Println("  export TLS_KEY_PATH='/path/to/server.key'")
 	fmt.Println("  ./smtp-telegram-bridge")
-	fmt.Println("")
-	fmt.Println("Example usage:")
-	fmt.Println("  export TELEGRAM_BOT_TOKEN='123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11'")
-	fmt.Println("  export TELEGRAM_CHAT_ID='123456789'")
-	fmt.Println("  export SMTP_LISTEN_HOST='127.0.0.1'  # Optional: bind to localhost only")
-	fmt.Println("  go run *.go")
 	fmt.Println("")
 	fmt.Println("The SMTP server will start on the configured host and port")
 	fmt.Println("You can test it with tools like swaks:")

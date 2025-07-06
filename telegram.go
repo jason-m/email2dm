@@ -29,16 +29,14 @@ type TelegramMessage struct {
 // TelegramClient handles all Telegram API interactions
 type TelegramClient struct {
 	BotToken   string
-	ChatID     string
 	APIUrl     string
 	HTTPClient *http.Client
 }
 
 // NewTelegramClient creates a new Telegram client
-func NewTelegramClient(botToken, chatID string) *TelegramClient {
+func NewTelegramClient(botToken string) *TelegramClient {
 	return &TelegramClient{
 		BotToken: botToken,
-		ChatID:   chatID,
 		APIUrl:   fmt.Sprintf(TelegramAPIURL, botToken),
 		HTTPClient: &http.Client{
 			Timeout: HTTPRequestTimeout,
@@ -111,22 +109,10 @@ func (tc *TelegramClient) SendMessageToChatWithParseMode(text, chatID, parseMode
 	return nil
 }
 
-// SendMessage sends a single message to the default chat ID (for backward compatibility)
-func (tc *TelegramClient) SendMessage(text string) error {
-	return tc.SendMessageToChat(text, tc.ChatID)
+// SendPlainMessage sends a message without HTML formatting to a specific chat
+func (tc *TelegramClient) SendPlainMessage(text, chatID string) error {
+	return tc.SendMessageToChatWithParseMode(text, chatID, "")
 }
-
-// SendLongMessage handles long messages by splitting them into chunks (for backward compatibility)
-func (tc *TelegramClient) SendLongMessage(text string) error {
-	return tc.SendLongMessageToChat(text, tc.ChatID)
-}
-
-// SendMessageWithParseMode sends a message with specified parse mode (for backward compatibility)
-func (tc *TelegramClient) SendMessageWithParseMode(text, parseMode string) error {
-	return tc.SendMessageToChatWithParseMode(text, tc.ChatID, parseMode)
-}
-
-// splitMessage splits a message into chunks that fit within Telegram's limits
 func (tc *TelegramClient) splitMessage(text string) []string {
 	var chunks []string
 	lines := strings.Split(text, "\n")
@@ -212,15 +198,11 @@ func (tc *TelegramClient) wrapLongLine(line string, maxLength int) []string {
 	return wrapped
 }
 
-// SendPlainMessage sends a message without HTML formatting
-func (tc *TelegramClient) SendPlainMessage(text string) error {
-	return tc.SendMessageToChatWithParseMode(text, tc.ChatID, "")
-}
+// splitMessage splits a message into chunks that fit within Telegram's limits
 
-// TestConnection tests the connection to Telegram by sending a test message
+// TestConnection validates the bot token by checking bot info
 func (tc *TelegramClient) TestConnection() error {
-	testMessage := "🔧 SMTP to Telegram Bridge - Connection Test"
-	return tc.SendMessage(testMessage)
+	return tc.GetBotInfo()
 }
 
 // GetBotInfo retrieves information about the bot (useful for debugging)
