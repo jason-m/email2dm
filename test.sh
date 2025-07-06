@@ -34,7 +34,7 @@ echo "🧪 Test with: swaks --to 123456789@example.com --from test@company.com -
 echo ""
 
 # Check if binary exists
-if [ ! -f "./smtp-telegram-bridge" ]; then
+if [ ! -f "./email2dm" ]; then
     echo "❌ Binary not found! Please build first with: go build"
     exit 1
 fi
@@ -44,4 +44,4 @@ echo "📡 Starting SMTP server on 0.0.0.0:2525..."
 echo "Press Ctrl+C to stop"
 echo ""
 
-./smtp-telegram-bridge
+./email2dm 

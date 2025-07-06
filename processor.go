@@ -15,13 +15,14 @@ import (
 // EmailProcessor handles email parsing and processing
 type EmailProcessor struct {
 	TelegramClient *TelegramClient
+	SlackClient    *SlackClient
 	SyslogWriter   *syslog.Writer
 }
 
 // NewEmailProcessor creates a new email processor
-func NewEmailProcessor(telegramClient *TelegramClient) *EmailProcessor {
+func NewEmailProcessor(telegramClient *TelegramClient, slackClient *SlackClient) *EmailProcessor {
 	// Initialize syslog writer
-	syslogWriter, err := syslog.New(syslog.LOG_INFO|syslog.LOG_MAIL, "smtp-telegram-bridge")
+	syslogWriter, err := syslog.New(syslog.LOG_INFO|syslog.LOG_MAIL, "email2dm")
 	if err != nil {
 		log.Printf("Warning: failed to initialize syslog: %v", err)
 		syslogWriter = nil
@@ -29,6 +30,7 @@ func NewEmailProcessor(telegramClient *TelegramClient) *EmailProcessor {
 
 	return &EmailProcessor{
 		TelegramClient: telegramClient,
+		SlackClient:    slackClient,
 		SyslogWriter:   syslogWriter,
 	}
 }

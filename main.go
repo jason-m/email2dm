@@ -14,6 +14,7 @@ import (
 // Config holds application configuration
 type Config struct {
 	TelegramBotToken string
+	SlackBotToken    string
 	SMTPListenHost   string
 	SMTPListenPort   int
 	AllowedNetworks  []string
@@ -24,7 +25,8 @@ type Config struct {
 
 // loadConfig loads configuration from environment variables
 func loadConfig() (*Config, error) {
-	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
+	telegramBotToken := os.Getenv("TELEGRAM_BOT_TOKEN")
+	slackBotToken := os.Getenv("SLACK_BOT_TOKEN")
 	smtpHost := os.Getenv("SMTP_LISTEN_HOST")
 	smtpPortStr := os.Getenv("SMTP_LISTEN_PORT")
 	allowedNetworksStr := os.Getenv("ALLOWED_NETWORKS")
@@ -32,8 +34,9 @@ func loadConfig() (*Config, error) {
 	tlsCertPath := os.Getenv("TLS_CERT_PATH")
 	tlsKeyPath := os.Getenv("TLS_KEY_PATH")
 
-	if botToken == "" {
-		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN environment variable is required")
+	// At least one platform token is required
+	if telegramBotToken == "" && slackBotToken == "" {
+		return nil, fmt.Errorf("at least one platform token is required (TELEGRAM_BOT_TOKEN or SLACK_BOT_TOKEN)")
 	}
 
 	// Default to 0.0.0.0 if not specified
@@ -95,7 +98,8 @@ func loadConfig() (*Config, error) {
 	}
 
 	return &Config{
-		TelegramBotToken: botToken,
+		TelegramBotToken: telegramBotToken,
+		SlackBotToken:    slackBotToken,
 		SMTPListenHost:   smtpHost,
 		SMTPListenPort:   smtpPort,
 		AllowedNetworks:  allowedNetworks,
@@ -109,6 +113,7 @@ func loadConfig() (*Config, error) {
 type Application struct {
 	Config         *Config
 	TelegramClient *TelegramClient
+	SlackClient    *SlackClient
 	EmailProcessor *EmailProcessor
 	SMTPServer     *SMTPServer
 }
@@ -138,6 +143,31 @@ func loadTLSConfig(config *Config) (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
+// validatePlatformTokens validates all configured platform tokens
+func validatePlatformTokens(telegramClient *TelegramClient, slackClient *SlackClient) []error {
+	var errors []error
+
+	if telegramClient != nil {
+		log.Println("Testing Telegram bot token...")
+		if err := telegramClient.TestConnection(); err != nil {
+			errors = append(errors, fmt.Errorf("Telegram validation failed: %w", err))
+		} else {
+			log.Println("Telegram bot token validated successfully!")
+		}
+	}
+
+	if slackClient != nil {
+		log.Println("Testing Slack bot token...")
+		if err := slackClient.TestConnection(); err != nil {
+			errors = append(errors, fmt.Errorf("Slack validation failed: %w", err))
+		} else {
+			log.Println("Slack bot token validated successfully!")
+		}
+	}
+
+	return errors
+}
+
 // NewApplication creates a new application instance
 func NewApplication(config *Config) (*Application, error) {
 	// Load TLS configuration if enabled
@@ -146,11 +176,20 @@ func NewApplication(config *Config) (*Application, error) {
 		return nil, fmt.Errorf("TLS configuration error: %w", err)
 	}
 
-	// Initialize Telegram client
-	telegramClient := NewTelegramClient(config.TelegramBotToken)
+	// Initialize platform clients
+	var telegramClient *TelegramClient
+	var slackClient *SlackClient
 
-	// Initialize email processor
-	emailProcessor := NewEmailProcessor(telegramClient)
+	if config.TelegramBotToken != "" {
+		telegramClient = NewTelegramClient(config.TelegramBotToken)
+	}
+
+	if config.SlackBotToken != "" {
+		slackClient = NewSlackClient(config.SlackBotToken)
+	}
+
+	// Initialize email processor with platform clients
+	emailProcessor := NewEmailProcessor(telegramClient, slackClient)
 
 	// Initialize SMTP server with TLS support
 	smtpServer := NewSMTPServer(emailProcessor, config.SMTPListenHost, config.SMTPListenPort, config.AllowedNetworks, tlsConfig)
@@ -158,6 +197,7 @@ func NewApplication(config *Config) (*Application, error) {
 	return &Application{
 		Config:         config,
 		TelegramClient: telegramClient,
+		SlackClient:    slackClient,
 		EmailProcessor: emailProcessor,
 		SMTPServer:     smtpServer,
 	}, nil
@@ -165,20 +205,28 @@ func NewApplication(config *Config) (*Application, error) {
 
 // Start starts the application
 func (app *Application) Start() error {
-	log.Println("Starting SMTP to Telegram Bridge...")
+	log.Println("Starting email2dm - SMTP to Chat Platform Bridge...")
 
-	// Test Telegram bot token and API access
-	log.Println("Testing Telegram bot token...")
-	if err := app.TelegramClient.TestConnection(); err != nil {
-		log.Printf("Warning: Telegram bot validation failed: %v", err)
-		log.Println("Continuing anyway - check your bot token")
-	} else {
-		log.Println("Telegram bot token validated successfully!")
+	// Test platform tokens
+	log.Println("Validating platform tokens...")
+	tokenErrors := validatePlatformTokens(app.TelegramClient, app.SlackClient)
+	if len(tokenErrors) > 0 {
+		for _, err := range tokenErrors {
+			log.Printf("Warning: %v", err)
+		}
+		log.Println("Continuing anyway - some platforms may not work")
 	}
 
 	// Get bot info for debugging
-	if err := app.TelegramClient.GetBotInfo(); err != nil {
-		log.Printf("Warning: Could not get bot info: %v", err)
+	if app.TelegramClient != nil {
+		if err := app.TelegramClient.GetBotInfo(); err != nil {
+			log.Printf("Warning: Could not get Telegram bot info: %v", err)
+		}
+	}
+	if app.SlackClient != nil {
+		if err := app.SlackClient.GetBotInfo(); err != nil {
+			log.Printf("Warning: Could not get Slack bot info: %v", err)
+		}
 	}
 
 	// Start SMTP server
@@ -194,7 +242,7 @@ func (app *Application) Start() error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	log.Println("SMTP to Telegram Bridge is running...")
+	log.Println("email2dm is running...")
 	log.Println("Press Ctrl+C to stop")
 
 	// Wait for either server error or shutdown signal
@@ -223,59 +271,78 @@ func (app *Application) Stop() error {
 
 // printUsage prints usage information
 func printUsage() {
-	fmt.Println("SMTP to Telegram Bridge")
-	fmt.Println("=======================")
-	fmt.Println("")
-	fmt.Println("This application creates an SMTP server that forwards emails to Telegram.")
-	fmt.Println("")
-	fmt.Println("Required environment variables:")
-	fmt.Println("  TELEGRAM_BOT_TOKEN - Your Telegram bot token from @BotFather")
-	fmt.Println("")
-	fmt.Println("Optional environment variables:")
-	fmt.Println("  SMTP_LISTEN_HOST   - IP address to bind SMTP server (default: 0.0.0.0)")
-	fmt.Println("  SMTP_LISTEN_PORT   - Port to bind SMTP server (default: 2525)")
-	fmt.Println("  ALLOWED_NETWORKS   - Comma-separated CIDR networks (e.g., '192.168.1.0/24,10.0.0.0/8')")
-	fmt.Println("  TLS_ENABLE         - Enable STARTTLS support (true/false, default: false)")
-	fmt.Println("  TLS_CERT_PATH      - Path to TLS certificate file (required if TLS_ENABLE=true)")
-	fmt.Println("  TLS_KEY_PATH       - Path to TLS private key file (required if TLS_ENABLE=true)")
-	fmt.Println("")
-	fmt.Println("Email Address Format:")
-	fmt.Println("  Send emails to: <TELEGRAM_ID>@<any-domain>")
-	fmt.Println("  Examples:")
-	fmt.Println("    123456789@notifications.company.com     # User ID 123456789")
-	fmt.Println("    -1001234567@alerts.company.com          # Group chat -1001234567")
-	fmt.Println("")
-	fmt.Println("Example usage:")
-	fmt.Println("  # Basic setup (plain SMTP)")
-	fmt.Println("  export TELEGRAM_BOT_TOKEN='123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11'")
-	fmt.Println("  export SMTP_LISTEN_HOST='127.0.0.1'      # Optional: bind to localhost only")
-	fmt.Println("  export SMTP_LISTEN_PORT='2525'           # Optional: custom port")
-	fmt.Println("  export ALLOWED_NETWORKS='192.168.1.0/24' # Optional: restrict source IPs")
-	fmt.Println("  ./smtp-telegram-bridge")
-	fmt.Println("")
-	fmt.Println("  # With STARTTLS support")
-	fmt.Println("  export TELEGRAM_BOT_TOKEN='123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11'")
-	fmt.Println("  export SMTP_LISTEN_PORT='587'            # Standard submission port")
-	fmt.Println("  export TLS_ENABLE='true'")
-	fmt.Println("  export TLS_CERT_PATH='/path/to/server.crt'")
-	fmt.Println("  export TLS_KEY_PATH='/path/to/server.key'")
-	fmt.Println("  ./smtp-telegram-bridge")
-	fmt.Println("")
-	fmt.Println("The SMTP server will start on the configured host and port")
-	fmt.Println("You can test it with tools like swaks:")
-	fmt.Println("  # Plain SMTP")
-	fmt.Println("  swaks --to 123456789@example.com --from sender@company.com --server localhost:2525 --body 'Test message'")
-	fmt.Println("  # With STARTTLS")
-	fmt.Println("  swaks --to 123456789@example.com --from sender@company.com --server localhost:587 --tls --body 'Test message'")
-	fmt.Println("")
-	fmt.Println("TLS Support:")
-	fmt.Println("  STARTTLS allows both encrypted and unencrypted connections on the same port")
-	fmt.Println("  Clients can optionally upgrade to TLS encryption after connecting")
-	fmt.Println("  Self-signed certificates are supported for development/internal use")
-	fmt.Println("")
-	fmt.Println("Logging:")
-	fmt.Println("  All email processing events are logged to syslog with format:")
-	fmt.Println("  src=<source_ip> from=<sender_email> telegram_id=<chat_id> msg=<status>")
+	usage := `email2dm - SMTP to Chat Platform Bridge
+==========================================
+
+This application creates an SMTP server that forwards emails to chat platforms.
+
+Required Environment Variables:
+  At least one platform token is required:
+  TELEGRAM_BOT_TOKEN - Your Telegram bot token from @BotFather
+  SLACK_BOT_TOKEN    - Your Slack bot token (xoxb-...)
+
+Optional Environment Variables:
+  SMTP_LISTEN_HOST   - IP address to bind SMTP server (default: 0.0.0.0)
+  SMTP_LISTEN_PORT   - Port to bind SMTP server (default: 2525)
+  ALLOWED_NETWORKS   - Comma-separated CIDR networks (e.g., '192.168.1.0/24,10.0.0.0/8')
+  TLS_ENABLE         - Enable STARTTLS support (true/false, default: false)
+  TLS_CERT_PATH      - Path to TLS certificate file (required if TLS_ENABLE=true)
+  TLS_KEY_PATH       - Path to TLS private key file (required if TLS_ENABLE=true)
+
+Email Address Format:
+  Send emails to: <USER_ID>@<platform>
+  
+  Telegram Examples:
+    123456789@telegram        # User ID 123456789
+    -1001234567@telegram      # Group chat -1001234567
+  
+  Slack Examples:
+    U1234567890@slack         # User ID U1234567890
+    C1234567890@slack         # Channel ID C1234567890
+    #general@slack            # Channel name #general
+    @username@slack           # Username @username
+
+Example Usage:
+  # Basic setup (plain SMTP)
+  export TELEGRAM_BOT_TOKEN='123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11'
+  export SLACK_BOT_TOKEN='xoxb-1234567890-1234567890-abcdefghij'
+  export SMTP_LISTEN_HOST='127.0.0.1'      # Optional: bind to localhost only
+  export SMTP_LISTEN_PORT='2525'           # Optional: custom port
+  export ALLOWED_NETWORKS='192.168.1.0/24' # Optional: restrict source IPs
+  ./email2dm
+
+  # With STARTTLS support
+  export TELEGRAM_BOT_TOKEN='123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11'
+  export SMTP_LISTEN_PORT='587'            # Standard submission port
+  export TLS_ENABLE='true'
+  export TLS_CERT_PATH='/path/to/server.crt'
+  export TLS_KEY_PATH='/path/to/server.key'
+  ./email2dm
+
+Testing:
+  # Plain SMTP
+  swaks --to 123456789@telegram --from sender@company.com --server localhost:2525 --body 'Test message'
+  swaks --to U1234567@slack --from sender@company.com --server localhost:2525 --body 'Test message'
+  
+  # With STARTTLS
+  swaks --to 123456789@telegram --from sender@company.com --server localhost:587 --tls --body 'Test message'
+
+TLS Support:
+  STARTTLS allows both encrypted and unencrypted connections on the same port
+  Clients can optionally upgrade to TLS encryption after connecting
+  Self-signed certificates are supported for development/internal use
+
+Use Cases:
+  • Server monitoring alerts
+  • Application deployment notifications  
+  • Automated backup reports
+  • Legacy hardware that only knows SMTP but wants to tell you how it's feeling
+
+Logging:
+  All email processing events are logged to syslog with format:
+  src=<source_ip> from=<sender_email> platform=<platform> user_id=<chat_id> msg=<status>`
+
+	fmt.Println(usage)
 }
 
 func main() {
