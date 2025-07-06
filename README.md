@@ -144,6 +144,7 @@ openssl req -new -x509 -key server.key -out server.crt -days 365 -subj "/CN=loca
 # Install swaks
 sudo apt-get install swaks  # Ubuntu/Debian
 brew install swaks          # macOS
+nix-shell -p swaks          # NixOS 
 
 # Test Telegram
 swaks --to 123456789@telegram --from test@company.com --server localhost:2525 --body "Test message"
