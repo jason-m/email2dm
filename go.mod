@@ -1,4 +1,4 @@
-module smtp-telegram-bridge
+module email2dm
 
 go 1.24.3
 

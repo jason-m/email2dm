@@ -44,82 +44,105 @@ type ProcessedEmail struct {
 	Body    string
 }
 
-// ProcessEmail processes raw email data and sends it to Telegram
+// ProcessEmail processes raw email data and sends it to the appropriate platform
 func (ep *EmailProcessor) ProcessEmail(data []byte, from string, to []string, remoteAddr string) error {
 	log.Printf("Processing email: %d bytes", len(data))
 
-	// Extract Telegram ID from first TO address
-	telegramID, err := ep.extractTelegramID(to)
+	// Extract platform and ID from first TO address
+	platform, userID, err := ep.extractPlatformAndID(to)
 	if err != nil {
-		ep.logToSyslog(remoteAddr, from, "", fmt.Sprintf("Invalid destination: %v", err))
-		return fmt.Errorf("invalid telegram destination: %w", err)
+		ep.logToSyslog(remoteAddr, from, "", "", fmt.Sprintf("Invalid destination: %v", err))
+		return fmt.Errorf("invalid destination: %w", err)
 	}
 
 	// Parse the email
 	parsedEmail, err := ep.parseEmail(data)
 	if err != nil {
-		ep.logToSyslog(remoteAddr, from, telegramID, fmt.Sprintf("Parse error: %v", err))
+		ep.logToSyslog(remoteAddr, from, platform, userID, fmt.Sprintf("Parse error: %v", err))
 		return fmt.Errorf("failed to parse email: %w", err)
 	}
 
 	// Log to syslog
-	ep.logToSyslog(remoteAddr, from, telegramID, "Processing email")
+	ep.logToSyslog(remoteAddr, from, platform, userID, "Processing email")
 
 	// Log the processed email info
-	log.Printf("Processed email - From: %s, To Telegram: %s, Subject: %s",
-		parsedEmail.From, telegramID, parsedEmail.Subject)
+	log.Printf("Processed email - From: %s, To %s: %s, Subject: %s",
+		parsedEmail.From, platform, userID, parsedEmail.Subject)
 
-	// Format for Telegram
-	telegramMessage := ep.formatForTelegram(parsedEmail)
+	// Format message for the specific platform
+	message := ep.formatMessageForPlatform(parsedEmail, platform)
 
-	// Send to Telegram with dynamic chat ID
-	if err := ep.TelegramClient.SendLongMessageToChat(telegramMessage, telegramID); err != nil {
-		ep.logToSyslog(remoteAddr, from, telegramID, fmt.Sprintf("Telegram send failed: %v", err))
-		return fmt.Errorf("failed to send to Telegram: %w", err)
+	// Send to the appropriate platform
+	if err := ep.sendToPlatform(message, platform, userID); err != nil {
+		ep.logToSyslog(remoteAddr, from, platform, userID, fmt.Sprintf("Send failed: %v", err))
+		return fmt.Errorf("failed to send to %s: %w", platform, err)
 	}
 
-	ep.logToSyslog(remoteAddr, from, telegramID, "Email sent successfully")
-	log.Println("Email successfully processed and sent to Telegram")
+	ep.logToSyslog(remoteAddr, from, platform, userID, "Email sent successfully")
+	log.Println("Email successfully processed and sent")
 	return nil
 }
 
-// extractTelegramID extracts Telegram chat ID from the first email address
-func (ep *EmailProcessor) extractTelegramID(toAddresses []string) (string, error) {
+// extractPlatformAndID extracts platform and user ID from the first email address
+func (ep *EmailProcessor) extractPlatformAndID(toAddresses []string) (platform, userID string, err error) {
 	if len(toAddresses) == 0 {
-		return "", fmt.Errorf("no recipient addresses provided")
+		return "", "", fmt.Errorf("no recipient addresses provided")
 	}
 
 	// Use only the first TO address
 	firstAddress := toAddresses[0]
 
-	// Parse email address to get local part
+	// Parse email address to get local and domain parts
 	addr, err := mail.ParseAddress(firstAddress)
 	if err != nil {
-		return "", fmt.Errorf("invalid email address format: %s", firstAddress)
+		return "", "", fmt.Errorf("invalid email address format: %s", firstAddress)
 	}
 
-	// Split email to get local part (before @)
+	// Split email to get local part (before @) and domain (after @)
 	parts := strings.Split(addr.Address, "@")
 	if len(parts) != 2 {
-		return "", fmt.Errorf("invalid email address format: %s", addr.Address)
+		return "", "", fmt.Errorf("invalid email address format: %s", addr.Address)
 	}
 
 	localPart := parts[0]
+	domainPart := strings.ToLower(parts[1])
 
-	// Validate that local part looks like a Telegram chat ID
-	if err := ep.validateTelegramID(localPart); err != nil {
-		return "", fmt.Errorf("invalid telegram ID '%s': %w", localPart, err)
+	// Determine platform from domain
+	switch domainPart {
+	case "telegram":
+		platform = "telegram"
+	case "slack":
+		platform = "slack"
+	default:
+		return "", "", fmt.Errorf("unsupported platform: %s", domainPart)
 	}
 
-	return localPart, nil
+	// Validate the ID for the specific platform
+	if err := ep.validateIDForPlatform(localPart, platform); err != nil {
+		return "", "", fmt.Errorf("invalid %s ID '%s': %w", platform, localPart, err)
+	}
+
+	return platform, localPart, nil
 }
 
-// validateTelegramID validates if a string looks like a valid Telegram chat ID
-func (ep *EmailProcessor) validateTelegramID(id string) error {
+// validateIDForPlatform validates if a string looks like a valid ID for the specified platform
+func (ep *EmailProcessor) validateIDForPlatform(id, platform string) error {
 	if id == "" {
 		return fmt.Errorf("empty ID")
 	}
 
+	switch platform {
+	case "telegram":
+		return ep.validateTelegramID(id)
+	case "slack":
+		return ep.validateSlackID(id)
+	default:
+		return fmt.Errorf("unsupported platform: %s", platform)
+	}
+}
+
+// validateTelegramID validates if a string looks like a valid Telegram chat ID
+func (ep *EmailProcessor) validateTelegramID(id string) error {
 	// Parse as integer to validate format
 	chatID, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
@@ -132,17 +155,99 @@ func (ep *EmailProcessor) validateTelegramID(id string) error {
 	}
 
 	// Telegram user IDs are typically positive, group/channel IDs are negative
-	// We accept both
 	log.Printf("Validated Telegram ID: %d (type: %s)", chatID,
 		map[bool]string{true: "user", false: "group/channel"}[chatID > 0])
 
 	return nil
 }
 
+// validateSlackID validates if a string looks like a valid Slack ID
+func (ep *EmailProcessor) validateSlackID(id string) error {
+	// Slack IDs can be:
+	// - User IDs: U1234567890 (start with U)
+	// - Channel IDs: C1234567890 (start with C)
+	// - Channel names: #general (start with #)
+	// - Usernames: username (plain username without @)
+
+	if strings.HasPrefix(id, "U") && len(id) >= 9 {
+		// User ID format
+		log.Printf("Validated Slack user ID: %s", id)
+		return nil
+	}
+
+	if strings.HasPrefix(id, "C") && len(id) >= 9 {
+		// Channel ID format
+		log.Printf("Validated Slack channel ID: %s", id)
+		return nil
+	}
+
+	if strings.HasPrefix(id, "#") && len(id) > 1 {
+		// Channel name format
+		log.Printf("Validated Slack channel name: %s", id)
+		return nil
+	}
+
+	// Plain username format (no @ prefix needed) - will be resolved to User ID later
+	if len(id) > 0 && !strings.Contains(id, "#") && !strings.Contains(id, "@") {
+		log.Printf("Validated Slack username: %s (will resolve to User ID)", id)
+		return nil
+	}
+
+	return fmt.Errorf("invalid Slack ID format (expected U1234567890, C1234567890, #channel, or username)")
+}
+
+// sendToPlatform routes the message to the appropriate platform client
+func (ep *EmailProcessor) sendToPlatform(message, platform, userID string) error {
+	switch platform {
+	case "telegram":
+		if ep.TelegramClient == nil {
+			return fmt.Errorf("telegram client not configured")
+		}
+		return ep.TelegramClient.SendLongMessageToChat(message, userID)
+
+	case "slack":
+		if ep.SlackClient == nil {
+			return fmt.Errorf("slack client not configured")
+		}
+
+		// Resolve username to User ID if needed
+		resolvedID := userID
+		if !strings.HasPrefix(userID, "U") && !strings.HasPrefix(userID, "C") && !strings.HasPrefix(userID, "#") {
+			// This looks like a username, try to resolve it
+			log.Printf("Attempting to resolve Slack username '%s' to User ID", userID)
+			resolvedUserID, err := ep.SlackClient.ResolveUserID(userID)
+			if err != nil {
+				return fmt.Errorf("failed to resolve username '%s': %w", userID, err)
+			}
+			resolvedID = resolvedUserID
+			log.Printf("Resolved username '%s' to User ID '%s'", userID, resolvedID)
+		}
+
+		return ep.SlackClient.SendLongMessageToChannel(message, resolvedID)
+
+	default:
+		return fmt.Errorf("unsupported platform: %s", platform)
+	}
+}
+
+// formatMessageForPlatform formats the processed email for the specific platform
+func (ep *EmailProcessor) formatMessageForPlatform(email *ProcessedEmail, platform string) string {
+	switch platform {
+	case "telegram":
+		return ep.formatForTelegram(email)
+	case "slack":
+		return ep.formatForSlack(email)
+	default:
+		// Fallback to plain text
+		return fmt.Sprintf("New Email\nFrom: %s\nTo: %s\nSubject: %s\nDate: %s\n\nMessage:\n%s",
+			email.From, email.To, email.Subject, email.Date, email.Body)
+	}
+}
+
 // logToSyslog logs email processing events to syslog
-func (ep *EmailProcessor) logToSyslog(srcIP, fromAddr, telegramID, message string) {
-	logMessage := fmt.Sprintf("src=%s from=%s telegram_id=%s msg=%s",
-		srcIP, fromAddr, telegramID, message)
+func (ep *EmailProcessor) logToSyslog(srcIP, fromAddr, platform, userID, message string) {
+	logMessage := fmt.Sprintf("src=%s from=%s platform=%s user_id=%s msg=%s",
+		srcIP, fromAddr, platform, userID, message)
 
 	if ep.SyslogWriter != nil {
 		err := ep.SyslogWriter.Info(logMessage)
@@ -154,6 +259,8 @@ func (ep *EmailProcessor) logToSyslog(srcIP, fromAddr, telegramID, message strin
 		log.Printf("SYSLOG: %s", logMessage)
 	}
 }
+
+// parseEmail parses raw email data into a ProcessedEmail struct
 func (ep *EmailProcessor) parseEmail(data []byte) (*ProcessedEmail, error) {
 	// Parse the email using Go's mail package
 	msg, err := mail.ReadMessage(bytes.NewReader(data))
@@ -363,20 +470,25 @@ func (ep *EmailProcessor) cleanBodyText(body string) string {
 // formatForTelegram formats the processed email for Telegram display
 func (ep *EmailProcessor) formatForTelegram(email *ProcessedEmail) string {
 	// Create a nicely formatted message for Telegram
-	message := fmt.Sprintf(`📧 <b>New Email</b>
-
-<b>From:</b> %s
-<b>To:</b> %s
-<b>Subject:</b> %s
-<b>Date:</b> %s
-
-<b>Message:</b>
-%s`,
+	message := fmt.Sprintf("📧 <b>New Email</b>\n\n<b>From:</b> %s\n<b>To:</b> %s\n<b>Subject:</b> %s\n<b>Date:</b> %s\n\n<b>Message:</b>\n%s",
 		ep.escapeHTML(email.From),
 		ep.escapeHTML(email.To),
 		ep.escapeHTML(email.Subject),
 		ep.escapeHTML(email.Date),
 		ep.escapeHTML(email.Body))
+
+	return message
+}
+
+// formatForSlack formats the processed email for Slack display (using Slack markdown)
+func (ep *EmailProcessor) formatForSlack(email *ProcessedEmail) string {
+	// Create a nicely formatted message for Slack using markdown
+	message := fmt.Sprintf(":email: *New Email*\n\n*From:* %s\n*To:* %s\n*Subject:* %s\n*Date:* %s\n\n*Message:*\n```\n%s\n```",
+		email.From,
+		email.To,
+		email.Subject,
+		email.Date,
+		email.Body)
 
 	return message
 }
@@ -398,5 +510,6 @@ func (ep *EmailProcessor) GetProcessorStats() map[string]interface{} {
 	return map[string]interface{}{
 		"status":             "active",
 		"telegram_connected": ep.TelegramClient != nil,
+		"slack_connected":    ep.SlackClient != nil,
 	}
 }

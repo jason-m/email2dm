@@ -198,8 +198,6 @@ func (tc *TelegramClient) wrapLongLine(line string, maxLength int) []string {
 	return wrapped
 }
 
-// splitMessage splits a message into chunks that fit within Telegram's limits
-
 // TestConnection validates the bot token by checking bot info
 func (tc *TelegramClient) TestConnection() error {
 	return tc.GetBotInfo()

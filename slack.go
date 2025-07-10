@@ -30,6 +30,7 @@ type SlackMessage struct {
 type SlackClient struct {
 	BotToken   string
 	HTTPClient *http.Client
+	UserCache  map[string]string // Cache for username -> user ID mappings
 }
 
 // NewSlackClient creates a new Slack client
@@ -39,7 +40,80 @@ func NewSlackClient(botToken string) *SlackClient {
 		HTTPClient: &http.Client{
 			Timeout: SlackHTTPRequestTimeout,
 		},
+		UserCache: make(map[string]string),
 	}
+}
+
+// ResolveUserID resolves a username to a User ID, with caching
+func (sc *SlackClient) ResolveUserID(username string) (string, error) {
+	// Check cache first
+	if userID, exists := sc.UserCache[username]; exists {
+		log.Printf("Found cached User ID for %s: %s", username, userID)
+		return userID, nil
+	}
+
+	// Look up user via API
+	url := fmt.Sprintf("%s/users.list", SlackAPIURL)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", sc.BotToken))
+
+	resp, err := sc.HTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to get users list: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("slack API error: %d - %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Parse response
+	var response struct {
+		OK      bool   `json:"ok"`
+		Error   string `json:"error,omitempty"`
+		Members []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"members"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if !response.OK {
+		return "", fmt.Errorf("slack API error: %s", response.Error)
+	}
+
+	// Find user by username and cache all users for future lookups
+	var foundUserID string
+	for _, member := range response.Members {
+		// Cache this user
+		sc.UserCache[member.Name] = member.ID
+
+		// Check if this is the user we're looking for
+		if member.Name == username {
+			foundUserID = member.ID
+		}
+	}
+
+	if foundUserID == "" {
+		return "", fmt.Errorf("user '%s' not found", username)
+	}
+
+	log.Printf("Resolved username %s to User ID %s", username, foundUserID)
+	return foundUserID, nil
 }
 
 // SendLongMessageToChannel handles long messages by splitting them into chunks for a specific channel

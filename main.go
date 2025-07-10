@@ -150,7 +150,7 @@ func validatePlatformTokens(telegramClient *TelegramClient, slackClient *SlackCl
 	if telegramClient != nil {
 		log.Println("Testing Telegram bot token...")
 		if err := telegramClient.TestConnection(); err != nil {
-			errors = append(errors, fmt.Errorf("telegram validation failed: %w", err))
+			errors = append(errors, fmt.Errorf("Telegram validation failed: %w", err))
 		} else {
 			log.Println("Telegram bot token validated successfully!")
 		}
@@ -159,7 +159,7 @@ func validatePlatformTokens(telegramClient *TelegramClient, slackClient *SlackCl
 	if slackClient != nil {
 		log.Println("Testing Slack bot token...")
 		if err := slackClient.TestConnection(); err != nil {
-			errors = append(errors, fmt.Errorf("slack validation failed: %w", err))
+			errors = append(errors, fmt.Errorf("Slack validation failed: %w", err))
 		} else {
 			log.Println("Slack bot token validated successfully!")
 		}
@@ -300,7 +300,7 @@ Email Address Format:
     U1234567890@slack         # User ID U1234567890
     C1234567890@slack         # Channel ID C1234567890
     #general@slack            # Channel name #general
-    @username@slack           # Username @username
+    username@slack            # Username (without @)
 
 Example Usage:
   # Basic setup (plain SMTP)
