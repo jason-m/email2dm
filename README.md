@@ -19,7 +19,7 @@ Send emails to: `<USER_ID>@<platform>`
 
 **Telegram Examples:**
 - `123456789@telegram` → Sends to Telegram user ID 123456789
-- `-1001234567@telegram` → Sends to Telegram group chat -1001234567
+- `g1234567@telegram` → Sends to Telegram group chat -1234567 (g prefix for groups)
 
 **Slack Examples:**
 - `U1234567890@slack` → Sends to Slack user ID U1234567890
@@ -43,7 +43,7 @@ For full functionality, your Slack bot needs these OAuth scopes:
 - `im:write` - Send direct messages to users
 
 ### Build from Source
-```bash
+### Testing Username Resolution
 git clone <repository-url>
 cd email2dm
 go mod init email2dm
@@ -156,6 +156,7 @@ nix-shell -p swaks          # NixOS
 
 # Test Telegram
 swaks --to 123456789@telegram --from test@company.com --server localhost:2525 --body "Test message"
+swaks --to g1234567@telegram --from test@company.com --server localhost:2525 --body "Group message"
 
 # Test Slack (multiple formats)
 swaks --to U1234567@slack --from test@company.com --server localhost:2525 --body "User ID format"
@@ -180,7 +181,16 @@ Hello from email2dm!
 QUIT
 ```
 
-### Testing Username Resolution
+### Getting Telegram IDs
+
+**For User IDs:**
+- Message [@userinfobot](https://t.me/userinfobot) on Telegram
+- Use the numeric ID directly: `123456789@telegram`
+
+**For Group IDs:**
+- Add [@username_to_id_bot](https://t.me/username_to_id_bot) to your group
+- Use the `g` prefix format: `g1234567@telegram` (converts to -1234567)
+- For supergroups: `g1001234567@telegram` (converts to -1001234567)
 ```bash
 # First time: API call to resolve username
 swaks --to john.doe@slack --from test@company.com --server localhost:2525 --body "First message (resolves username)"
@@ -211,6 +221,9 @@ src=1.2.3.4 from=spam@bad.com platform=telegram user_id=999999999 msg=Send faile
 # Send server alerts to your personal Telegram
 echo "High CPU usage detected!" | mail -s "Server Alert" 123456789@telegram
 
+# Send alerts to Telegram group
+echo "Database backup failed!" | mail -s "Critical Alert" g1234567@telegram
+
 # Send alerts to Slack channel by name
 echo "Database backup failed!" | mail -s "Critical Alert" "#alerts@slack"
 
@@ -222,7 +235,7 @@ echo "Your job failed!" | mail -s "Job Alert" john.doe@slack
 ```bash
 # Send deployment notifications to team chat
 curl -X POST localhost:2525 -d "Subject: Deployment Complete
-To: -1001234567@telegram
+To: g1234567@telegram
 
 Application v2.1.0 deployed successfully!"
 ```
@@ -245,6 +258,7 @@ echo "UPS battery low, runtime: 5 minutes" | mail -s "Hardware Alert" 123456789@
 ```bash
 # Send the same alert to multiple platforms
 echo "Critical system failure!" | mail -s "URGENT" 123456789@telegram
+echo "Critical system failure!" | mail -s "URGENT" g1234567@telegram
 echo "Critical system failure!" | mail -s "URGENT" "#incidents@slack"
 ```
 
@@ -308,7 +322,7 @@ echo "Critical system failure!" | mail -s "URGENT" "#incidents@slack"
 ### Currently Supported
 - **Telegram**: User chats, group chats, channels
   - User ID format: `123456789@telegram`
-  - Group format: `-1001234567@telegram`
+  - Group format: `g1234567@telegram` (converts to -1234567)
 - **Slack**: Users, channels (by ID or name), direct messages
   - User ID format: `U1234567890@slack`
   - Channel ID format: `C1234567890@slack`
@@ -324,7 +338,7 @@ echo "Critical system failure!" | mail -s "URGENT" "#incidents@slack"
 | Feature | Telegram | Slack |
 |---------|----------|-------|
 | User IDs | ✅ Numeric | ✅ U-prefixed |
-| Channel IDs | ✅ Negative numeric | ✅ C-prefixed |
+| Group IDs | ✅ g-prefixed (converts to negative) | ✅ C-prefixed |
 | Channel names | ❌ | ✅ #-prefixed |
 | Username resolution | ❌ | ✅ Automatic |
 | Message limits | 4,096 chars | 40,000 chars |

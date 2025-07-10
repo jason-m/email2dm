@@ -294,7 +294,7 @@ Email Address Format:
   
   Telegram Examples:
     123456789@telegram        # User ID 123456789
-    -1001234567@telegram      # Group chat -1001234567
+    g1234567@telegram         # Group chat (converts to -1234567)
   
   Slack Examples:
     U1234567890@slack         # User ID U1234567890
@@ -322,6 +322,7 @@ Example Usage:
 Testing:
   # Plain SMTP
   swaks --to 123456789@telegram --from sender@company.com --server localhost:2525 --body 'Test message'
+  swaks --to g1234567@telegram --from sender@company.com --server localhost:2525 --body 'Group message'
   swaks --to U1234567@slack --from sender@company.com --server localhost:2525 --body 'Test message'
   
   # With STARTTLS

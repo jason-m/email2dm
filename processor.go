@@ -143,6 +143,17 @@ func (ep *EmailProcessor) validateIDForPlatform(id, platform string) error {
 
 // validateTelegramID validates if a string looks like a valid Telegram chat ID
 func (ep *EmailProcessor) validateTelegramID(id string) error {
+	// Handle group prefix notation: g123456 -> -123456
+	if strings.HasPrefix(id, "g") && len(id) > 1 {
+		// Remove 'g' prefix and validate the rest as a number
+		numPart := id[1:]
+		if _, err := strconv.ParseInt(numPart, 10, 64); err != nil {
+			return fmt.Errorf("invalid group ID format 'g%s': %w", numPart, err)
+		}
+		log.Printf("Validated Telegram group ID: g%s (will convert to -%s)", numPart, numPart)
+		return nil
+	}
+
 	// Parse as integer to validate format
 	chatID, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
@@ -203,7 +214,15 @@ func (ep *EmailProcessor) sendToPlatform(message, platform, userID string) error
 		if ep.TelegramClient == nil {
 			return fmt.Errorf("telegram client not configured")
 		}
-		return ep.TelegramClient.SendLongMessageToChat(message, userID)
+
+		// Convert group prefix notation: g123456 -> -123456
+		telegramID := userID
+		if strings.HasPrefix(userID, "g") && len(userID) > 1 {
+			telegramID = "-" + userID[1:]
+			log.Printf("Converted group ID: %s -> %s", userID, telegramID)
+		}
+
+		return ep.TelegramClient.SendLongMessageToChat(message, telegramID)
 
 	case "slack":
 		if ep.SlackClient == nil {
