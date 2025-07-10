@@ -330,7 +330,7 @@ echo "Critical system failure!" | mail -s "URGENT" "#incidents@slack"
 
 ### Coming Soon
 - Discord
-- Microsoft Teams
+- ~~Microsoft Teams~~
 - Mattermost
 
 ### Platform-Specific Features
