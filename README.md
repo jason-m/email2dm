@@ -46,8 +46,7 @@ For full functionality, your Slack bot needs these OAuth scopes:
 ### Testing Username Resolution
 git clone <repository-url>
 cd email2dm
-go mod init email2dm
-go get github.com/emersion/go-smtp
+go get
 go build -o email2dm
 ```
 
